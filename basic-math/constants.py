@@ -55,7 +55,7 @@ OPERATIONS = [
 # ── Levels ──
 LEVEL_NAMES = ["Level 1: Easy", "Level 2: Medium", "Level 3: Hard"]
 LEVEL_DESC = ["Single-digit (1-9)", "Mixed (10-50 & 1-9)", "Double-digit (10-99)"]
-LEVEL_REWARD = {1: 0.01, 2: 0.03, 3: 0.05}
+LEVEL_REWARD = {1: 0.01, 2: 0.02, 3: 0.04}
 LEVEL_TIMER = {1: 6000, 2: 50000, 3: 100000}  # ms per question
 
 # ── Operation boosters ──
