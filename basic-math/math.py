@@ -38,11 +38,28 @@ CARD_LIT = (62, 88, 112)
 clock = pygame.time.Clock()
 
 # Sounds
-pygame.mixer.init()
+_sound_enabled = True
+try:
+    pygame.mixer.init()
+except pygame.error:
+    _sound_enabled = False
+
 _sound_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sounds")
-snd_correct = pygame.mixer.Sound(os.path.join(_sound_dir, SOUND_CORRECT))
-snd_wrong = pygame.mixer.Sound(os.path.join(_sound_dir, SOUND_WRONG))
-snd_easy = pygame.mixer.Sound(os.path.join(_sound_dir, SOUND_EASY))
+
+
+class _DummySound:
+    def play(self):
+        pass
+
+
+if _sound_enabled:
+    snd_correct = pygame.mixer.Sound(os.path.join(_sound_dir, SOUND_CORRECT))
+    snd_wrong = pygame.mixer.Sound(os.path.join(_sound_dir, SOUND_WRONG))
+    snd_easy = pygame.mixer.Sound(os.path.join(_sound_dir, SOUND_EASY))
+else:
+    snd_correct = _DummySound()
+    snd_wrong = _DummySound()
+    snd_easy = _DummySound()
 
 # Background image
 _img_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
