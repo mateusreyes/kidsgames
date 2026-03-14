@@ -55,19 +55,20 @@ OPERATIONS = [
 # ── Levels ──
 LEVEL_NAMES = ["Level 1: Easy", "Level 2: Medium", "Level 3: Hard"]
 LEVEL_DESC = ["Single-digit (1-9)", "Mixed (10-50 & 1-9)", "Double-digit (10-99)"]
-LEVEL_REWARD = {1: 0.01, 2: 0.07, 3: 0.15}
-LEVEL_TIMER = {1: 6000, 2: 60000, 3: 120000}  # ms per question
+LEVEL_REWARD = {1: 0.01, 2: 0.03, 3: 0.05}
+LEVEL_TIMER = {1: 6000, 2: 50000, 3: 100000}  # ms per question
 
 # ── Operation boosters ──
 OP_BOOSTER = {0: 1, 
-              1: 2, 
-              2: 3, 
-              3: 4}  # +1x, -2x, x3x, /4x
+              1: 1, 
+              2: 2, 
+              3: 3}  # +1x, -2x, x3x, /4x
 
 # ── Gameplay ──
 MAX_TRIES = 3
-WRONG_PENALTY = 0.02
-TIMER_PENALTY = 0.01
+WRONG_PENALTY = 0.03
+TIMER_PENALTY = 0.02
+DAILY_LIMIT = 10.00
 MAX_INPUT_LEN = 8
 FPS = 30
 FEEDBACK_DURATION = 150  # frames

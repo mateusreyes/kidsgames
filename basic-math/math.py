@@ -3,6 +3,8 @@ import random
 import sys
 import json
 import os
+from datetime import date
+from dataclasses import dataclass, field
 from constants import *
 
 pygame.init()
@@ -78,20 +80,30 @@ SAVE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), SAVE_FILENA
 
 
 def load_save():
+    today = date.today().isoformat()
     if os.path.exists(SAVE_FILE):
         try:
             with open(SAVE_FILE, "r") as f:
                 data = json.load(f)
-            return data.get("money", 0.0), data.get("best_streak", 0)
+            daily_earned = data.get("daily_earned", 0.0)
+            last_date = data.get("last_date", "")
+            if last_date != today:
+                daily_earned = 0.0
+            return data.get("money", 0.0), data.get("best_streak", 0), daily_earned
         except (json.JSONDecodeError, IOError):
             pass
-    return 0.0, 0
+    return 0.0, 0, 0.0
 
 
-def save_game(money, best_streak):
+def save_game(money, best_streak, daily_earned):
     try:
         with open(SAVE_FILE, "w") as f:
-            json.dump({"money": round(money, 2), "best_streak": best_streak}, f)
+            json.dump({
+                "money": round(money, 2),
+                "best_streak": best_streak,
+                "daily_earned": round(daily_earned, 2),
+                "last_date": date.today().isoformat(),
+            }, f)
     except IOError:
         pass
 
@@ -168,6 +180,95 @@ def new_problem(op_index, level, asked):
     return new_problem(op_index, level, asked)
 
 
+@dataclass
+class Problem:
+    a: int
+    b: int
+    symbol: str
+    answer: int
+
+
+@dataclass
+class QuizState:
+    op_index: int
+    level: int
+    money: float
+    best_streak: int
+    daily_earned: float = 0.0
+    asked: set = field(default_factory=set)
+    problem: Problem = None
+    user_input: str = ""
+    streak: int = 0
+    problems_done: int = 0
+    tries: int = 0
+    feedback: str = ""
+    feedback_timer: int = 0
+    feedback_color: tuple = GREEN
+    timer_ms: int = 0
+
+    def __post_init__(self):
+        self.booster = OP_BOOSTER[self.op_index]
+        self.reward = round(LEVEL_REWARD[self.level] * self.booster, 2)
+        self.timer_limit = LEVEL_TIMER[self.level]
+        self.next_problem()
+
+    def next_problem(self):
+        a, b, symbol, answer = new_problem(self.op_index, self.level, self.asked)
+        self.problem = Problem(a, b, symbol, answer)
+        self.user_input = ""
+        self.tries = 0
+        self.timer_ms = 0
+
+    def check_answer(self, guess):
+        if guess == self.problem.answer:
+            snd_correct.play()
+            if self.daily_earned < DAILY_LIMIT:
+                actual_reward = min(self.reward, round(DAILY_LIMIT - self.daily_earned, 2))
+                self.money = round(self.money + actual_reward, 2)
+                self.daily_earned = round(self.daily_earned + actual_reward, 2)
+            else:
+                actual_reward = 0.0
+            self.streak += 1
+            self.best_streak = max(self.best_streak, self.streak)
+            self.problems_done += 1
+            cheer = random.choice(CHEERS)
+            if self.daily_earned >= DAILY_LIMIT:
+                self.feedback = f"{cheer}   Daily $10 limit reached!"
+            else:
+                self.feedback = f"{cheer}   +${actual_reward:.2f}"
+            if self.streak > 1:
+                self.feedback += f"   (streak: {self.streak})"
+            self.feedback_color = GREEN
+            self.next_problem()
+            save_game(self.money, self.best_streak, self.daily_earned)
+        else:
+            snd_wrong.play()
+            self.tries += 1
+            self.money = round(max(0, self.money - WRONG_PENALTY), 2)
+            self.streak = 0
+            self.timer_ms = 0
+            if self.tries >= MAX_TRIES:
+                self.feedback = f"Answer was {self.problem.answer}.   New question!   -${WRONG_PENALTY:.2f}"
+                self.feedback_color = ORANGE
+                self.next_problem()
+            else:
+                left = MAX_TRIES - self.tries
+                self.feedback = f"Wrong!  -${WRONG_PENALTY:.2f}    ({left} {'try' if left == 1 else 'tries'} left)"
+                self.feedback_color = RED
+                self.user_input = ""
+        self.feedback_timer = FEEDBACK_DURATION
+        save_game(self.money, self.best_streak, self.daily_earned)
+
+    def handle_timeout(self):
+        self.money = round(max(0, self.money - TIMER_PENALTY), 2)
+        self.streak = 0
+        snd_wrong.play()
+        self.feedback = f"Time's up!  Answer was {self.problem.answer}.   -${TIMER_PENALTY:.2f}"
+        self.feedback_color = ORANGE
+        self.feedback_timer = FEEDBACK_DURATION
+        self.next_problem()
+
+
 def draw_text(text, font, color, x, y, center=True):
     surf = font.render(text, True, color)
     rect = surf.get_rect(center=(x, y)) if center else surf.get_rect(topleft=(x, y))
@@ -183,6 +284,14 @@ def draw_button(text, font, x, y, w, h, color, mouse_pos):
     pygame.draw.rect(screen, WHITE, rect, 2, border_radius=14)
     draw_text(text, font, WHITE, x, y)
     return rect
+
+
+def draw_glass_panel(x, y, w, h, alpha=140, radius=24):
+    """Draw a semi-transparent dark panel (frosted glass effect)."""
+    panel = pygame.Surface((w, h), pygame.SRCALPHA)
+    pygame.draw.rect(panel, (20, 25, 40, alpha), (0, 0, w, h), border_radius=radius)
+    pygame.draw.rect(panel, (255, 255, 255, 40), (0, 0, w, h), 2, border_radius=radius)
+    screen.blit(panel, (x, y))
 
 
 def draw_progress_bar(problems_done, x, y, w, h):
@@ -215,17 +324,30 @@ def menu_operation():
 
         screen.fill(BG)
         draw_bg(screen)
-        draw_text("ELISE & ERIK", font_huge, GOLD, W // 2, 90)
-        draw_text("MATH GAME", font_big, GOLD, W // 2, 175)
-        draw_text("Choose an operation:", font_med, GRAY, W // 2, 270)
+
+        # Vertical centering
+        num_ops = len(OPERATIONS)
+        block_h = 110 + 85 + 120 + num_ops * 95 + 80
+        start_y = max(60, (H - block_h) // 2)
+
+        # Glass panel behind content
+        last_btn_y = start_y + 370 + (num_ops - 1) * 95
+        panel_w = 900
+        panel_top = start_y - 140
+        panel_bot = last_btn_y + 120
+        draw_glass_panel(W // 2 - panel_w // 2, panel_top, panel_w, panel_bot - panel_top)
+
+        draw_text("ELISE & ERIK", font_huge, RED, W // 2, start_y)
+        draw_text("MATH GAME", font_big, RED, W // 2, start_y + 85)
+        draw_text("Choose an operation:", font_big, WHITE, W // 2, start_y + 230)
 
         buttons = []
         for i, op in enumerate(OPERATIONS):
             btn = draw_button(f"{op['symbol']}   {op['name']}", font_med,
-                              W // 2, 370 + i * 95, 500, 75, op["color"], mouse_pos)
+                              W // 2, start_y + 370 + i * 95, 500, 75, op["color"], mouse_pos)
             buttons.append(btn)
 
-        draw_text("ESC = quit", font_xs, GRAY, W // 2, H - 40)
+        draw_text("ESC = quit", font_xs, BLACK, W // 2, H - 40)
         pygame.display.flip()
 
 
@@ -254,12 +376,24 @@ def menu_level(op_index):
 
         screen.fill(BG)
         draw_bg(screen)
-        draw_text(f"{op['symbol']}   {op['name']}", font_huge, op["color"], W // 2, 120)
-        draw_text("Choose difficulty:", font_med, GRAY, W // 2, 230)
+
+        # Vertical centering
+        block_h = 110 + 120 + 3 * 110 + 80
+        start_y = max(60, (H - block_h) // 2)
+
+        # Glass panel behind content
+        last_btn_y = start_y + 310 + 2 * 110
+        panel_w = 900
+        panel_top = start_y - 140
+        panel_bot = last_btn_y + 120
+        draw_glass_panel(W // 2 - panel_w // 2, panel_top, panel_w, panel_bot - panel_top)
+
+        draw_text(f"{op['symbol']}   {op['name']}", font_huge, op["color"], W // 2, start_y)
+        draw_text("Choose difficulty:", font_med, WHITE, W // 2, start_y + 170)
 
         buttons = []
         for i in range(3):
-            by = 340 + i * 110
+            by = start_y + 310 + i * 110
             btn = draw_button(LEVEL_NAMES[i], font_med,
                               W // 2, by, 550, 75, op["color"], mouse_pos)
             buttons.append(btn)
@@ -270,25 +404,11 @@ def menu_level(op_index):
 
 
 # ── GAME LOOP ──
-def game_loop(op_index, level, money, best_streak_global):
+def game_loop(op_index, level, money, best_streak_global, daily_earned):
     op = OPERATIONS[op_index]
-    asked = set()
-    booster = OP_BOOSTER[op_index]
-    reward = round(LEVEL_REWARD[level] * booster, 2)
-    a, b, symbol, answer = new_problem(op_index, level, asked)
-    user_input = ""
-    streak = 0
-    best_streak = best_streak_global
-    problems_done = 0
-    tries = 0
-    max_tries = MAX_TRIES
-    feedback = ""
-    feedback_timer = 0
-    feedback_color = GREEN
+    q = QuizState(op_index, level, money, best_streak_global, daily_earned)
     tick = 0
     menu_btn = pygame.Rect(0, 0, 0, 0)
-    timer_ms = 0
-    timer_limit = LEVEL_TIMER[level]
 
     while True:
         dt = clock.tick(FPS)
@@ -296,84 +416,40 @@ def game_loop(op_index, level, money, best_streak_global):
         mouse_pos = pygame.mouse.get_pos()
 
         # Timer: skip to new question when time runs out
-        timer_ms += dt
-        if timer_ms >= timer_limit:
-            timer_ms = 0
-            money = round(max(0, money - TIMER_PENALTY), 2)
-            streak = 0
-            snd_wrong.play()
-            feedback = f"Time's up!  Answer was {answer}.   -${TIMER_PENALTY:.2f}"
-            feedback_color = ORANGE
-            feedback_timer = FEEDBACK_DURATION
-            a, b, symbol, answer = new_problem(op_index, level, asked)
-            user_input = ""
-            tries = 0
+        q.timer_ms += dt
+        if q.timer_ms >= q.timer_limit:
+            q.handle_timeout()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if menu_btn.collidepoint(event.pos):
-                    save_game(money, best_streak)
-                    return money, best_streak
+                    save_game(q.money, q.best_streak, q.daily_earned)
+                    return q.money, q.best_streak, q.daily_earned
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    save_game(money, best_streak)
-                    return money, best_streak  # back to menus
+                    save_game(q.money, q.best_streak, q.daily_earned)
+                    return q.money, q.best_streak, q.daily_earned
                 elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                    if not user_input:
+                    if not q.user_input:
                         continue
                     try:
-                        guess = int(user_input)
+                        guess = int(q.user_input)
                     except ValueError:
-                        user_input = ""
+                        q.user_input = ""
                         continue
-
-                    if guess == answer:
-                        snd_correct.play()
-                        money = round(money + reward, 2)
-                        streak += 1
-                        best_streak = max(best_streak, streak)
-                        problems_done += 1
-                        cheer = random.choice(CHEERS)
-                        feedback = f"{cheer}   +${reward:.2f}"
-                        if streak > 1:
-                            feedback += f"   (streak: {streak})"
-                        feedback_color = GREEN
-                        a, b, symbol, answer = new_problem(op_index, level, asked)
-                        user_input = ""
-                        tries = 0
-                        timer_ms = 0
-                        save_game(money, best_streak)
-                    else:
-                        snd_wrong.play()
-                        tries += 1
-                        money = round(max(0, money - WRONG_PENALTY), 2)
-                        streak = 0
-                        timer_ms = 0
-                        if tries >= max_tries:
-                            feedback = f"Answer was {answer}.   New question!   -${WRONG_PENALTY:.2f}"
-                            feedback_color = ORANGE
-                            a, b, symbol, answer = new_problem(op_index, level, asked)
-                            user_input = ""
-                            tries = 0
-                        else:
-                            left = max_tries - tries
-                            feedback = f"Wrong!  -${WRONG_PENALTY:.2f}    ({left} {'try' if left == 1 else 'tries'} left)"
-                            feedback_color = RED
-                            user_input = ""
-
-                    feedback_timer = FEEDBACK_DURATION
+                    q.check_answer(guess)
 
                 elif event.key == pygame.K_BACKSPACE:
-                    user_input = user_input[:-1]
-                elif event.key == pygame.K_MINUS and not user_input:
-                    user_input = "-"
-                elif event.unicode.isdigit() and len(user_input) < MAX_INPUT_LEN:
-                    user_input += event.unicode
+                    q.user_input = q.user_input[:-1]
+                elif event.key == pygame.K_MINUS and not q.user_input:
+                    q.user_input = "-"
+                elif event.unicode.isdigit() and len(q.user_input) < MAX_INPUT_LEN:
+                    q.user_input += event.unicode
 
-        if feedback_timer > 0:
-            feedback_timer -= 1
+        if q.feedback_timer > 0:
+            q.feedback_timer -= 1
 
         # === DRAW ===
         W, H = screen.get_size()
@@ -388,62 +464,76 @@ def game_loop(op_index, level, money, best_streak_global):
 
         # Money
         pygame.draw.rect(screen, DGREEN, (20, 10, 250, 50), border_radius=25)
-        draw_text(f"$ {money:.2f}", font_sm, WHITE, 145, 35)
+        draw_text(f"$ {q.money:.2f}", font_sm, WHITE, 145, 35)
 
         # Title
         draw_text(f"{op['name']}  —  {LEVEL_NAMES[level - 1].split(':')[0]}",
                   font_xs, op["color"], CX, 35)
 
         # Streak
-        if streak > 0:
+        if q.streak > 0:
             pygame.draw.rect(screen, ORANGE, (W - 240, 10, 220, 50), border_radius=25)
-            draw_text(f"Streak: {streak}", font_xs, WHITE, W - 130, 35)
+            draw_text(f"Streak: {q.streak}", font_xs, WHITE, W - 130, 35)
 
         # ── Compute available area ──
         area_top = bar_h + 10
-        area_bot = H - 10
+        area_bot = H - 70
         area_h = area_bot - area_top
 
         # ── Problem card ──
         card_w = min(750, W - 60)
         card_h = min(180, int(area_h * 0.28))
+        field_w = (W - 120) * 2 // 5
+        field_h = 162
+
+        # Total content block height: card + gap + label + input + hint + feedback
+        content_h = card_h + 20 + 30 + field_h + 25 + 50
+        content_top = area_top + (area_h - content_h) // 2
+
         card_x = CX - card_w // 2
-        card_y = area_top + 10
+        card_y = content_top
+
+        # Glass panel behind quiz content
+        panel_w = max(card_w, field_w) + 80
+        panel_top = card_y - 30
+        panel_bot = card_y + card_h + 120 + 70 + field_h + 80
+        draw_glass_panel(CX - panel_w // 2, panel_top, panel_w, panel_bot - panel_top)
+
         pygame.draw.rect(screen, CARD, (card_x, card_y, card_w, card_h), border_radius=20)
         pygame.draw.rect(screen, CARD_LIT, (card_x, card_y, card_w, card_h), 2, border_radius=20)
 
         # Equation
-        equation = f"{a}  {symbol}  {b}  ="
+        p = q.problem
+        equation = f"{p.a}  {p.symbol}  {p.b}  ="
         draw_text(equation, font_big, WHITE, CX, card_y + card_h // 2 - 10)
 
         # Tries dots
-        if tries > 0:
+        if q.tries > 0:
             dots = ""
-            for i in range(max_tries):
-                dots += "X " if i < tries else "O "
-            draw_text(dots.strip(), font_sm, RED if tries >= 3 else GRAY,
+            for i in range(MAX_TRIES):
+                dots += "X " if i < q.tries else "O "
+            draw_text(dots.strip(), font_sm, RED if q.tries >= 3 else GRAY,
                       CX, card_y + card_h - 25)
 
         # ── Answer input ──
-        input_y = card_y + card_h + 20
-        field_w, field_h = 300, 60
+        input_y = card_y + card_h + 120
 
         draw_text("Your answer:", font_xs, GRAY, CX, input_y)
 
-        ib = pygame.Rect(CX - field_w // 2, input_y + 18, field_w, field_h)
-        pygame.draw.rect(screen, INPUT_BG, ib, border_radius=12)
-        pygame.draw.rect(screen, op["color"], ib, 4, border_radius=12)
+        ib = pygame.Rect(CX - field_w // 2, input_y + 70, field_w, field_h)
+        pygame.draw.rect(screen, INPUT_BG, ib, border_radius=14)
+        pygame.draw.rect(screen, op["color"], ib, 4, border_radius=14)
         cursor = "|" if tick % FPS < FPS // 2 else ""
-        draw_text((user_input + cursor) or "?", font_big,
-                  WHITE if user_input else GRAY, ib.centerx, ib.centery)
+        draw_text((q.user_input + cursor) or "?", font_huge,
+                  WHITE if q.user_input else GRAY, ib.centerx, ib.centery)
 
         # ── Hint ──
         draw_text("Type answer + ENTER",
-                  font_xs, GRAY, CX, ib.bottom + 20)
+                  font_xs, GRAY, CX, ib.bottom + 22)
 
         # ── Feedback ──
-        if feedback_timer > 0:
-            draw_text(feedback, font_sm, feedback_color, CX, ib.bottom + 55)
+        if q.feedback_timer > 0:
+            draw_text(q.feedback, font_sm, q.feedback_color, CX, ib.bottom + 58)
 
         # ── Bottom bar: stats + timer + menu ──
         bot_y = H - 60
@@ -452,27 +542,27 @@ def game_loop(op_index, level, money, best_streak_global):
         menu_btn = draw_button("< Menu", font_xs, 100, bot_y, 160, 45, CARD, mouse_pos)
 
         # Timer display (bottom right)
-        secs_left = max(0, (timer_limit - timer_ms)) / 1000.0
+        secs_left = max(0, (q.timer_limit - q.timer_ms)) / 1000.0
         timer_color = RED if secs_left < 2 else GRAY
         draw_text(f"-${TIMER_PENALTY:.2f} in {secs_left:.0f}s", font_xs, timer_color, W - 110, bot_y)
 
         # Stats (center bottom)
-        draw_text(f"Solved: {problems_done}   |   Best streak: {best_streak}",
+        draw_text(f"Solved: {q.problems_done}   |   Best streak: {q.best_streak}",
                   font_xs, GRAY, CX, bot_y - 20)
         bar_w = min(400, W - 300)
-        draw_progress_bar(problems_done, CX - bar_w // 2, bot_y, bar_w, 24)
+        draw_progress_bar(q.problems_done, CX - bar_w // 2, bot_y, bar_w, 24)
 
         pygame.display.flip()
 
 
 def main():
-    money, best_streak = load_save()
+    money, best_streak, daily_earned = load_save()
     while True:
         op_index = menu_operation()
         level = menu_level(op_index)
         if level is None:
             continue
-        money, best_streak = game_loop(op_index, level, money, best_streak)
+        money, best_streak, daily_earned = game_loop(op_index, level, money, best_streak, daily_earned)
 
 
 if __name__ == "__main__":
