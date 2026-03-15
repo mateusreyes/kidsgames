@@ -66,6 +66,7 @@ OP_BOOSTER = {0: 1,
 
 # ── Gameplay ──
 EASY_PROMO_THRESHOLD = 10  # correct answers on Easy before auto-promoting to Medium
+EASY_EARN_LIMIT = 2.00  # max $ earnable on Easy before it gets disabled
 MAX_TRIES = 3
 WRONG_PENALTY = 0.03
 TIMER_PENALTY = 0.02

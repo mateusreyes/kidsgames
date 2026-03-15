@@ -89,19 +89,21 @@ def load_save():
             last_date = data.get("last_date", "")
             if last_date != today:
                 daily_earned = 0.0
-            return data.get("money", 0.0), data.get("best_streak", 0), daily_earned
+            return (data.get("money", 0.0), data.get("best_streak", 0),
+                    daily_earned, data.get("easy_earned", 0.0))
         except (json.JSONDecodeError, IOError):
             pass
-    return 0.0, 0, 0.0
+    return 0.0, 0, 0.0, 0.0
 
 
-def save_game(money, best_streak, daily_earned):
+def save_game(money, best_streak, daily_earned, easy_earned):
     try:
         with open(SAVE_FILE, "w") as f:
             json.dump({
                 "money": round(money, 2),
                 "best_streak": best_streak,
                 "daily_earned": round(daily_earned, 2),
+                "easy_earned": round(easy_earned, 2),
                 "last_date": date.today().isoformat(),
             }, f)
     except IOError:
@@ -195,6 +197,7 @@ class QuizState:
     money: float
     best_streak: int
     daily_earned: float = 0.0
+    easy_earned: float = 0.0
     asked: set = field(default_factory=set)
     problem: Problem = None
     user_input: str = ""
@@ -226,6 +229,8 @@ class QuizState:
                 actual_reward = min(self.reward, round(DAILY_LIMIT - self.daily_earned, 2))
                 self.money = round(self.money + actual_reward, 2)
                 self.daily_earned = round(self.daily_earned + actual_reward, 2)
+                if self.level == 1:
+                    self.easy_earned = round(self.easy_earned + actual_reward, 2)
             else:
                 actual_reward = 0.0
             self.streak += 1
@@ -246,7 +251,7 @@ class QuizState:
                 self.feedback += f"   (streak: {self.streak})"
             self.feedback_color = GREEN
             self.next_problem()
-            save_game(self.money, self.best_streak, self.daily_earned)
+            save_game(self.money, self.best_streak, self.daily_earned, self.easy_earned)
         else:
             snd_wrong.play()
             self.tries += 1
@@ -263,7 +268,7 @@ class QuizState:
                 self.feedback_color = RED
                 self.user_input = ""
         self.feedback_timer = FEEDBACK_DURATION
-        save_game(self.money, self.best_streak, self.daily_earned)
+        save_game(self.money, self.best_streak, self.daily_earned, self.easy_earned)
 
     def handle_timeout(self):
         self.money = round(max(0, self.money - TIMER_PENALTY), 2)
@@ -358,8 +363,9 @@ def menu_operation():
 
 
 # ── MENU: pick level ──
-def menu_level(op_index):
+def menu_level(op_index, easy_earned):
     op = OPERATIONS[op_index]
+    easy_locked = easy_earned >= EASY_EARN_LIMIT
     buttons = []
     back_btn = pygame.Rect(0, 0, 0, 0)
     while True:
@@ -376,6 +382,8 @@ def menu_level(op_index):
                     return None
                 for i, btn in enumerate(buttons):
                     if btn.collidepoint(event.pos):
+                        if i + 1 == 1 and easy_locked:
+                            continue
                         if i + 1 == 1:
                             snd_easy.play()
                         return i + 1
@@ -400,19 +408,25 @@ def menu_level(op_index):
         buttons = []
         for i in range(3):
             by = start_y + 310 + i * 110
-            btn = draw_button(LEVEL_NAMES[i], font_med,
-                              W // 2, by, 550, 75, op["color"], mouse_pos)
+            if i == 0 and easy_locked:
+                btn = draw_button(LEVEL_NAMES[i], font_med,
+                                  W // 2, by, 550, 75, GRAY, mouse_pos)
+                draw_text(f"Locked  (${easy_earned:.2f}/${EASY_EARN_LIMIT:.2f} earned)",
+                          font_xs, RED, W // 2, by + 52)
+            else:
+                btn = draw_button(LEVEL_NAMES[i], font_med,
+                                  W // 2, by, 550, 75, op["color"], mouse_pos)
+                draw_text(LEVEL_DESC[i], font_xs, GRAY, W // 2, by + 52)
             buttons.append(btn)
-            draw_text(LEVEL_DESC[i], font_xs, GRAY, W // 2, by + 52)
 
         back_btn = draw_button("< Back", font_sm, 120, H - 50, 180, 55, CARD, mouse_pos)
         pygame.display.flip()
 
 
 # ── GAME LOOP ──
-def game_loop(op_index, level, money, best_streak_global, daily_earned):
+def game_loop(op_index, level, money, best_streak_global, daily_earned, easy_earned):
     op = OPERATIONS[op_index]
-    q = QuizState(op_index, level, money, best_streak_global, daily_earned)
+    q = QuizState(op_index, level, money, best_streak_global, daily_earned, easy_earned)
     tick = 0
     menu_btn = pygame.Rect(0, 0, 0, 0)
 
@@ -431,12 +445,12 @@ def game_loop(op_index, level, money, best_streak_global, daily_earned):
                 pygame.quit(); sys.exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if menu_btn.collidepoint(event.pos):
-                    save_game(q.money, q.best_streak, q.daily_earned)
-                    return q.money, q.best_streak, q.daily_earned
+                    save_game(q.money, q.best_streak, q.daily_earned, q.easy_earned)
+                    return q.money, q.best_streak, q.daily_earned, q.easy_earned
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    save_game(q.money, q.best_streak, q.daily_earned)
-                    return q.money, q.best_streak, q.daily_earned
+                    save_game(q.money, q.best_streak, q.daily_earned, q.easy_earned)
+                    return q.money, q.best_streak, q.daily_earned, q.easy_earned
                 elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                     if not q.user_input:
                         continue
@@ -562,13 +576,14 @@ def game_loop(op_index, level, money, best_streak_global, daily_earned):
 
 
 def main():
-    money, best_streak, daily_earned = load_save()
+    money, best_streak, daily_earned, easy_earned = load_save()
     while True:
         op_index = menu_operation()
-        level = menu_level(op_index)
+        level = menu_level(op_index, easy_earned)
         if level is None:
             continue
-        money, best_streak, daily_earned = game_loop(op_index, level, money, best_streak, daily_earned)
+        money, best_streak, daily_earned, easy_earned = game_loop(
+            op_index, level, money, best_streak, daily_earned, easy_earned)
 
 
 if __name__ == "__main__":
