@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Basic Math
+Comment=A fun math game for kids
+Exec=bash -c 'cd ~/kidsgames/basic-math && ./bootstrap.sh'
+Icon=accessories-calculator
+Terminal=false
+Type=Application
+Categories=Game;Education;

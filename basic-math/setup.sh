@@ -50,6 +50,19 @@ main() {
   # Install required packages
   pip install pygame
 
+  echo "Installing desktop shortcut..."
+  DESKTOP_FILE="$(pwd)/basic-math.desktop"
+  if [[ -f "$DESKTOP_FILE" ]]; then
+    mkdir -p ~/.local/share/applications
+    cp "$DESKTOP_FILE" ~/.local/share/applications/basic-math.desktop
+    # Update Exec path to point to the actual install location
+    sed -i "s|Exec=.*|Exec=bash -c 'cd $(pwd) \&\& ./bootstrap.sh'|" \
+      ~/.local/share/applications/basic-math.desktop
+    echo "Desktop shortcut installed."
+  else
+    err "Desktop file not found, skipping shortcut installation."
+  fi
+
   echo "Setup complete! You can now run './start.sh' to play."
 }
 
