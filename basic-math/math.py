@@ -110,21 +110,27 @@ def save_game(money, best_streak, daily_earned, easy_earned):
         pass
 
 
-def gen_operands(level):
+def gen_operands(level, op_index=None):
     if level == 1:
         return random.randint(1, 9), random.randint(1, 9)
     elif level == 2:
+        if op_index in (0, 1):  # add/sub: both operands double-digit
+            return random.randint(10, 50), random.randint(10, 50)
         return random.randint(10, 50), random.randint(2, 9)
     else:
         return random.randint(10, 99), random.randint(10, 99)
 
 
-def _is_trivial(a, b, op_index):
-    """Reject questions that are too easy (e.g. 1+3, 2*1, 5-0)."""
+def _is_trivial(a, b, op_index, level=1):
+    """Reject questions that are too easy."""
     if op_index == 0:  # addition
-        return a + b <= 5
+        if level == 1:
+            return a + b <= 5
+        return abs(a - b) < 3  # reject near-doubles like 25+26
     elif op_index == 1:  # subtraction
-        return a - b == 0 or min(a, b) <= 1
+        if level == 1:
+            return a - b == 0 or min(a, b) <= 1
+        return a - b <= 2 or a - b == a  # reject tiny/zero differences
     elif op_index == 2:  # multiplication
         return min(a, b) <= 1
     return False  # division is already constrained
@@ -133,8 +139,8 @@ def _is_trivial(a, b, op_index):
 def new_problem(op_index, level, asked):
     for _ in range(500):  # safety cap
         if op_index == 0:  # Addition
-            a, b = gen_operands(level)
-            if _is_trivial(a, b, op_index):
+            a, b = gen_operands(level, op_index)
+            if _is_trivial(a, b, op_index, level):
                 continue
             key = (op_index, level, a, b)
             if key in asked:
@@ -142,10 +148,10 @@ def new_problem(op_index, level, asked):
             asked.add(key)
             return a, b, "+", a + b
         elif op_index == 1:  # Subtraction
-            a, b = gen_operands(level)
+            a, b = gen_operands(level, op_index)
             if a < b:
                 a, b = b, a
-            if _is_trivial(a, b, op_index):
+            if _is_trivial(a, b, op_index, level):
                 continue
             key = (op_index, level, a, b)
             if key in asked:
@@ -153,8 +159,8 @@ def new_problem(op_index, level, asked):
             asked.add(key)
             return a, b, "-", a - b
         elif op_index == 2:  # Multiplication
-            a, b = gen_operands(level)
-            if _is_trivial(a, b, op_index):
+            a, b = gen_operands(level, op_index)
+            if _is_trivial(a, b, op_index, level):
                 continue
             key = (op_index, level, a, b)
             if key in asked:
@@ -255,26 +261,30 @@ class QuizState:
         else:
             snd_wrong.play()
             self.tries += 1
-            self.money = round(max(0, self.money - WRONG_PENALTY), 2)
+            penalty = min(WRONG_PENALTY, self.money)
+            self.money = round(self.money - penalty, 2)
+            self.daily_earned = round(max(0, self.daily_earned - penalty), 2)
             self.streak = 0
             self.timer_ms = 0
             if self.tries >= MAX_TRIES:
-                self.feedback = f"Answer was {self.problem.answer}.   New question!   -${WRONG_PENALTY:.2f}"
+                self.feedback = f"Answer was {self.problem.answer}.   New question!   -${penalty:.2f}"
                 self.feedback_color = ORANGE
                 self.next_problem()
             else:
                 left = MAX_TRIES - self.tries
-                self.feedback = f"Wrong!  -${WRONG_PENALTY:.2f}    ({left} {'try' if left == 1 else 'tries'} left)"
+                self.feedback = f"Wrong!  -${penalty:.2f}    ({left} {'try' if left == 1 else 'tries'} left)"
                 self.feedback_color = RED
                 self.user_input = ""
         self.feedback_timer = FEEDBACK_DURATION
         save_game(self.money, self.best_streak, self.daily_earned, self.easy_earned)
 
     def handle_timeout(self):
-        self.money = round(max(0, self.money - TIMER_PENALTY), 2)
+        penalty = min(TIMER_PENALTY, self.money)
+        self.money = round(self.money - penalty, 2)
+        self.daily_earned = round(max(0, self.daily_earned - penalty), 2)
         self.streak = 0
         snd_wrong.play()
-        self.feedback = f"Time's up!  Answer was {self.problem.answer}.   -${TIMER_PENALTY:.2f}"
+        self.feedback = f"Time's up!  Answer was {self.problem.answer}.   -${penalty:.2f}"
         self.feedback_color = ORANGE
         self.feedback_timer = FEEDBACK_DURATION
         self.next_problem()

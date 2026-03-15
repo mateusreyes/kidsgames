@@ -54,7 +54,7 @@ OPERATIONS = [
 
 # ── Levels ──
 LEVEL_NAMES = ["Level 1: Easy", "Level 2: Medium", "Level 3: Hard"]
-LEVEL_DESC = ["Single-digit (1-9)", "Mixed (10-50 & 1-9)", "Double-digit (10-99)"]
+LEVEL_DESC = ["Single-digit (1-9)", "Two-digit (10-50)", "Double-digit (10-99)"]
 LEVEL_REWARD = {1: 0.01, 2: 0.02, 3: 0.04}
 LEVEL_TIMER = {1: 6000, 2: 50000, 3: 100000}  # ms per question
 
@@ -66,7 +66,7 @@ OP_BOOSTER = {0: 1,
 
 # ── Gameplay ──
 EASY_PROMO_THRESHOLD = 10  # correct answers on Easy before auto-promoting to Medium
-EASY_EARN_LIMIT = 2.00  # max $ earnable on Easy before it gets disabled
+EASY_EARN_LIMIT = 1.00  # max $ earnable on Easy before it gets disabled
 MAX_TRIES = 3
 WRONG_PENALTY = 0.03
 TIMER_PENALTY = 0.02
