@@ -65,6 +65,7 @@ OP_BOOSTER = {0: 1,
               3: 3}  # +1x, -2x, x3x, /4x
 
 # ── Gameplay ──
+EASY_PROMO_THRESHOLD = 10  # correct answers on Easy before auto-promoting to Medium
 MAX_TRIES = 3
 WRONG_PENALTY = 0.03
 TIMER_PENALTY = 0.02

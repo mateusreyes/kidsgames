@@ -231,6 +231,12 @@ class QuizState:
             self.streak += 1
             self.best_streak = max(self.best_streak, self.streak)
             self.problems_done += 1
+            # Auto-promote from Easy to Medium after enough correct answers
+            if self.level == 1 and self.problems_done >= EASY_PROMO_THRESHOLD:
+                self.level = 2
+                self.reward = round(LEVEL_REWARD[self.level] * self.booster, 2)
+                self.timer_limit = LEVEL_TIMER[self.level]
+                self.asked.clear()
             cheer = random.choice(CHEERS)
             if self.daily_earned >= DAILY_LIMIT:
                 self.feedback = f"{cheer}   Daily $10 limit reached!"
@@ -467,7 +473,7 @@ def game_loop(op_index, level, money, best_streak_global, daily_earned):
         draw_text(f"$ {q.money:.2f}", font_sm, WHITE, 145, 35)
 
         # Title
-        draw_text(f"{op['name']}  —  {LEVEL_NAMES[level - 1].split(':')[0]}",
+        draw_text(f"{op['name']}  —  {LEVEL_NAMES[q.level - 1].split(':')[0]}",
                   font_xs, op["color"], CX, 35)
 
         # Streak
